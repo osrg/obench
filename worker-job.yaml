@@ -1,0 +1,16 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: obench-worker
+spec:
+  parallelism: 100
+  template:
+    metadata:
+      name: obench-worker
+    spec:
+      containers:
+      - name: obench-worker
+        image: mitake/obench
+        command: ["obench", "worker"]
+        args: ["--master-url", "http://10.112.55.3:8080/worker"]
+      restartPolicy: Never
