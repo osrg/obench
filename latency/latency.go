@@ -242,6 +242,35 @@ func launchMaster() (string, string, error) {
 	return masterResultURL, masterWorkerURL, nil
 }
 
+func deleteMaster() error {
+	del := exec.Command("kubectl", "delete", "-f", "-")
+	delStdin, err := del.StdinPipe()
+	if err != nil {
+		fmt.Printf("failed to execute kubectl: %s\n", err)
+		return err
+	}
+
+	del.Start()
+	_, err = delStdin.Write([]byte(masterDeploymentYaml()))
+	if err != nil {
+		fmt.Printf("failed to write a yaml of master deployment to kubectl stdin: %s\n", err)
+		return err
+	}
+	err = delStdin.Close()
+	if err != nil {
+		fmt.Printf("failed to write a yaml of master deployment to kubectl stdin: %s\n", err)
+		return err
+	}
+
+	del.Wait()
+
+	del = exec.Command("kubectl", "delete", "services", "obench-master")
+	del.Start()
+	del.Wait()
+
+	return nil
+}
+
 func launchWorker(id int, url string) error {
 	workerCreate := exec.Command("kubectl", "create", "-f", "-")
 	workerCreateStdin, err := workerCreate.StdinPipe()
@@ -259,6 +288,26 @@ func launchWorker(id int, url string) error {
 	workerCreateStdin.Close()
 
 	// fmt.Printf("created worker %d\n", id)
+	return nil
+}
+
+func deleteWorker(ch chan struct{}, id int, url string) error {
+	workerCreate := exec.Command("kubectl", "delete", "-f", "-")
+	workerCreateStdin, err := workerCreate.StdinPipe()
+	if err != nil {
+		fmt.Printf("failed to execute kubectl: %s\n", err)
+		return err
+	}
+
+	workerCreate.Start()
+	_, err = workerCreateStdin.Write([]byte(workerJobYaml(id, url)))
+	if err != nil {
+		fmt.Printf("failed to write a yaml of worker job to kubectl stdin: %s\n", err)
+		return err
+	}
+	workerCreateStdin.Close()
+
+	ch <- struct{}{}
 	return nil
 }
 
@@ -313,5 +362,16 @@ func runLatency(cmd *cobra.Command, args []string) {
 		resp.Body.Read(buf)
 		fmt.Printf(string(buf))
 		break
+	}
+
+	deleteMaster()
+
+	ch := make(chan struct{})
+	for i := 0; i < nrWorkers; i++ {
+		go deleteWorker(ch, i, workerURL)
+	}
+
+	for i := 0; i < nrWorkers; i++ {
+		<-ch
 	}
 }
